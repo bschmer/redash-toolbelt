@@ -1,4 +1,6 @@
 import requests
+import pprint
+
 
 
 class Redash(object):
@@ -42,6 +44,49 @@ class Redash(object):
         }
         return self._post('api/widgets', json=data)
 
+    def create_query(self, name, description, query, data_source_id, options):
+        data = dict(
+            name = name,
+            description = description,
+            query = query,
+            data_source_id = data_source_id,
+            options = options
+        )
+        return self._post('api/queries', json=data)
+
+    def create_visualization(self, name, description, query_id, type, options):
+        data = dict(
+            name = name,
+            description = description,
+            query_id = query_id,
+            type = type,
+            options = options
+        )
+        return self._post('api/visualizations', json=data)
+
+    def duplicate_query(self, query_id, new_name=None):
+
+        return_value = {}
+        current_query = self.query(query_id)
+        new_query = self.create_query(
+            'Copy of ' + current_query['name'],
+            current_query['description'],
+            current_query['query'],
+            current_query['data_source_id'],
+            current_query['options']
+        ).json()
+
+        for visualization in current_query['visualizations']:
+            new_visualization = self.create_visualization(
+                visualization['name'],
+                visualization['description'],
+                new_query['id'],
+                visualization['type'],
+                visualization['options']
+            ).json()
+            return_value[visualization['id']] = new_visualization['id']
+        return new_query, return_value
+
     def duplicate_dashboard(self, slug, new_name=None):
         current_dashboard = self.dashboard(slug)
 
@@ -52,10 +97,16 @@ class Redash(object):
         if current_dashboard['tags']:
             self.update_dashboard(new_dashboard['id'], {'tags': current_dashboard['tags']})
 
+        queries = {}
+
         for widget in current_dashboard['widgets']:
             visualization_id = None
             if 'visualization' in widget:
-                visualization_id = widget['visualization']['id']
+                query_id = widget['visualization']['query']['id']
+                if query_id not in queries:
+                    query, vis_map = self.duplicate_query(query_id)
+                    queries[query_id] = (query, vis_map)
+                visualization_id = queries[query_id][1][widget['visualization']['id']]
             self.create_widget(new_dashboard['id'], visualization_id, widget['text'], widget['options'])
 
         return new_dashboard
@@ -64,6 +115,11 @@ class Redash(object):
         """Loads all queries and returns only the scheduled ones."""
         queries = self.paginate(self.queries)
         return filter(lambda query: query['schedule'] is not None, queries)
+
+    def query(self, query_id):
+        """GET /api/queries/{query_id} with the provided data object."""
+        path = 'api/queries/{}'.format(query_id)
+        return self._get(path).json()
 
     def update_query(self, query_id, data):
         """POST /api/queries/{query_id} with the provided data object."""
