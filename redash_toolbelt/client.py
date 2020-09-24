@@ -1,13 +1,14 @@
 import requests
 import pprint
-
+import datetime
 
 
 class Redash(object):
-    def __init__(self, redash_url, api_key):
+    def __init__(self, redash_url, api_key, copy_prefix='Copy of'):
         self.redash_url = redash_url
         self.session = requests.Session()
         self.session.headers.update({'Authorization': 'Key {}'.format(api_key)})
+        self.copy_prefix = copy_prefix
 
     def test_credentials(self):
         try:
@@ -64,38 +65,76 @@ class Redash(object):
         )
         return self._post('api/visualizations', json=data)
 
+    def update_visualization(self, visualization_id, name, description, query_id, type, options):
+        data = dict(
+            name = name,
+            description = description,
+            query_id = query_id,
+            type = type,
+            options = options
+        )
+        return self._post('api/visualizations/{}'.format(visualization_id), json=data)
+
+    def _genname(self, name):
+        return u'{} {} ({})'.format(self.copy_prefix, name, datetime.date.today())
+
     def duplicate_query(self, query_id, new_name=None):
 
         return_value = {}
         current_query = self.query(query_id)
         new_query = self.create_query(
-            'Copy of ' + current_query['name'],
+            self._genname(current_query['name']),
             current_query['description'],
             current_query['query'],
             current_query['data_source_id'],
             current_query['options']
         ).json()
 
-        for visualization in current_query['visualizations']:
-            new_visualization = self.create_visualization(
-                visualization['name'],
-                visualization['description'],
-                new_query['id'],
-                visualization['type'],
-                visualization['options']
-            ).json()
-            return_value[visualization['id']] = new_visualization['id']
+        updates = {}
+        if current_query['is_draft'] != new_query['is_draft']:
+            updates['is_draft'] = current_query['is_draft']
+        if updates:
+            self.update_query(new_query['id'], updates)
+
+        vis_id = new_query['visualizations'][0]['id']
+
+        for visualization in current_query['visualizations'][::-1]:
+            if vis_id:
+                new_visualization = self.update_visualization(
+                    vis_id,
+                    visualization['name'],  # Decided against modifying name here since visualizations are tied to queries.
+                    visualization['description'],
+                    new_query['id'],
+                    visualization['type'],
+                    visualization['options']
+                ).json()
+                return_value[visualization['id']] = vis_id
+                vis_id = None
+            else:
+                new_visualization = self.create_visualization(
+                    visualization['name'],  # Decided against modifying name here since visualizations are tied to queries.
+                    visualization['description'],
+                    new_query['id'],
+                    visualization['type'],
+                    visualization['options']
+                ).json()
+                return_value[visualization['id']] = new_visualization['id']
         return new_query, return_value
 
     def duplicate_dashboard(self, slug, new_name=None):
         current_dashboard = self.dashboard(slug)
 
         if new_name is None:
-            new_name = u'Copy of: {}'.format(current_dashboard['name'])
+            new_name = self._genname(current_dashboard['name'])
 
         new_dashboard = self.create_dashboard(new_name)
+        updates = dict()
         if current_dashboard['tags']:
-            self.update_dashboard(new_dashboard['id'], {'tags': current_dashboard['tags']})
+            updates['tags'] = current_dashboard['tags']
+        if current_dashboard['is_draft'] != new_dashboard['is_draft']:
+            updates['is_draft'] = current_dashboard['is_draft']
+        if updates:
+            self.update_dashboard(new_dashboard['id'], updates)
 
         queries = {}
 

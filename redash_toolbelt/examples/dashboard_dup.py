@@ -8,21 +8,10 @@ import pdb
 @click.option('--redash-url')
 @click.option('--api-key', help="API Key")
 @click.option('--dashboard-slug', help="Dashboard slug")
-def main(redash_url, api_key, dashboard_slug):
-    redash_client = client.Redash(redash_url, api_key)
+@click.option('--copy-prefix', help="Text to prefix to name of copied elements", default="Copy of")
+def main(redash_url, api_key, dashboard_slug, copy_prefix):
+    redash_client = client.Redash(redash_url, api_key, copy_prefix)
     redash_client.duplicate_dashboard(dashboard_slug)
-    '''
-    dashboard = redash_client.dashboard(dashboard_slug)
-
-
-    for widget in dashboard['widgets']:
-        pprint.pprint(widget)
-    value = redash_client.query(439853)
-    data = value.json()
-    print data
-    print redash_client.duplicate_query(477642)
-    '''
-
 
 if __name__ == '__main__':
     main()
